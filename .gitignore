@@ -1,0 +1,19 @@
+# .gitignore
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.pyright_cache*/
+build/
+dist/
+*.egg-info/
+.env
+data/database/*.db
+data/database/*.db.wal
+# Add any other sensitive files or large data directories
+# data/input_pdfs/ # Optional: if your input data is large/private
+# data/raw_text/
+# data/structured_data/
