@@ -1,6 +1,9 @@
 ## **Overview**
 
-Template to implement a pipeline using Dagster to extract text from PDF files, generate structured data using OpenAI's API, and store the results in a PostgreSQL database. The project is designed with scalability, modularity, and best practices in mind, making it suitable for both local development and cloud deployments.
+Template to implement a pipeline using Dagster to extract text from PDF files, generate structured data using OpenAI's API, and store the results in a duckDB. The project is designed with scalability, modularity, and best practices in mind, making it suitable for both local development and cloud deployments.
+
+- Quindi primo step
+
 
 ---
 
@@ -8,7 +11,7 @@ Template to implement a pipeline using Dagster to extract text from PDF files, g
 
 - **PDF Text Extraction**: Reads PDF files from local storage or S3 and extracts text using the `unstructured` library.
 - **Structured Data Generation**: Processes extracted text with OpenAI to produce structured JSON data.
-- **PostgreSQL Storage**: Stores structured data in a PostgreSQL database for querying and analysis.
+- **DuckDB Storage**: Store structured data in DuckDB file-based database
 - **Dagster Integration**: Leverages Dagster's software-defined assets (SDAs) for modular pipeline orchestration.
 - **Cloud-Ready**: Supports AWS RDS for PostgreSQL and S3 for storage.
 - **Extensible Design**: Easily add new steps or modify existing ones without disrupting the pipeline.
@@ -38,6 +41,5 @@ The pipeline consists of three sequential steps:
 ### Prerequisites
 
 1. Python 3.12+ installed.
-2. PostgreSQL installed locally or an AWS RDS instance configured.
 3. AWS CLI configured (if using S3 or RDS).
 4. Docker installed (optional for containerized deployments).

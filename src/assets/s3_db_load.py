@@ -2,77 +2,95 @@ from dagster import asset, Output, MetadataValue, Config, AssetExecutionContext
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import json
-from src.resources.postgres import PostgreSQLResource
+from resources.duckdb import DuckDBResource
 from datetime import datetime
 
 
-class PostgreSQLStorageConfig(Config):
+class DuckDBStorageConfig(Config):
     table_name: str = "documents"
     schema_mapping: Dict[str, str] = {
-        "document_id": "VARCHAR(255)",
-        "filename": "VARCHAR(255)",
+        "document_id": "VARCHAR",
+        "filename": "VARCHAR",
         "title": "TEXT",
-        "author": "VARCHAR(255)",
+        "author": "VARCHAR",
         "content_summary": "TEXT",
-        "metadata": "JSONB",
+        "metadata": "JSON",
     }
 
 
 @asset(
-    compute_kind="postgres",
+    compute_kind="duckdb",
     group_name="documents",
     deps=["extract_structured_data"],
     code_version="v1",
 )
 def load_to_database(
     context: AssetExecutionContext,
-    config: PostgreSQLStorageConfig,
-    postgres: PostgreSQLResource,
+    config: DuckDBStorageConfig,
+    duckdb: DuckDBResource,
     extract_structured_data: Dict[str, Dict],
 ) -> Output[Dict[str, Any]]:
-    """Load structured data into PostgreSQL database."""
+    """Load structured data into DuckDB database."""
     context.log.info("Starting database load")
 
     try:
         # Create table if not exists
-        postgres.execute_query(
-            f"""
-            CREATE TABLE IF NOT EXISTS {config.table_name} (
-                {', '.join(f'{k} {v}' for k, v in config.schema_mapping.items())}
-            )
-        """
-        )
+        duckdb.create_table(config.table_name, config.schema_mapping)
 
         # Prepare records for insertion
-        records = [
-            {
+        records = []
+        for doc_id, doc_data in extract_structured_data.items():
+            # Extract the extraction_date from doc_data
+            extraction_date = (
+                doc_data.pop("extraction_date")
+                if "extraction_date" in doc_data
+                else None
+            )
+
+            # Create metadata JSON
+            metadata = {
+                "extraction_date": extraction_date,
+                "processing_date": datetime.now().isoformat(),
+            }
+
+            # Create the record
+            record = {
                 "document_id": doc_id,
                 **doc_data,
-                "metadata": json.dumps(
-                    {
-                        "extraction_date": doc_data.pop("extraction_date"),
-                        "processing_date": datetime.now().isoformat(),
-                    }
-                ),
+                "metadata": json.dumps(metadata),
             }
-            for doc_id, doc_data in extract_structured_data.items()
-        ]
+            records.append(record)
 
         # Insert records
-        insert_query = f"""
-            INSERT INTO {config.table_name} 
-            ({', '.join(config.schema_mapping.keys())})
-            VALUES ({', '.join(['%s'] * len(config.schema_mapping))})
-        """
+        if records:
+            # Build parameters for batch insert
+            columns = config.schema_mapping.keys()
+            insert_query = f"""
+                INSERT INTO {config.table_name} 
+                ({', '.join(columns)})
+                VALUES ({', '.join(['?'] * len(columns))})
+            """
 
-        rows_inserted = postgres.execute_batch(
-            insert_query,
-            [(record[k] for k in config.schema_mapping.keys()) for record in records],
-        )
+            rows_inserted = duckdb.execute_batch(
+                insert_query, [(record.get(k) for k in columns) for record in records]
+            )
+
+            # Commit the transaction
+            duckdb.commit()
+
+            context.log.info(
+                f"Inserted {rows_inserted} records into {config.table_name}"
+            )
+        else:
+            context.log.info("No records to insert")
+            rows_inserted = 0
 
         return Output(
             value={"rows_inserted": rows_inserted},
-            metadata={"rows_inserted": rows_inserted, "table_name": config.table_name},
+            metadata={
+                "rows_inserted": MetadataValue.int(rows_inserted),
+                "table_name": MetadataValue.text(config.table_name),
+            },
         )
 
     except Exception as e:

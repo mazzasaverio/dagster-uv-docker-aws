@@ -6,7 +6,7 @@ from dagster import (
     define_asset_job,
 )
 from dagster_aws.s3 import S3Resource
-from src.resources.postgres import PostgreSQLResource
+from src.resources.duckdb import DuckDBResource
 from src.resources.storage import StorageResource, StorageType
 from src.resources.openai import OpenAIResource
 import os
@@ -18,12 +18,8 @@ def get_resource_defs():
     deployment_name = os.getenv("DAGSTER_DEPLOYMENT", "local")
 
     common_resources = {
-        "postgres": PostgreSQLResource(
-            host=EnvVar("POSTGRES_HOST"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=EnvVar("POSTGRES_DB"),
-            user=EnvVar("POSTGRES_USER"),
-            password=EnvVar("POSTGRES_PASSWORD"),
+        "duckdb": DuckDBResource(
+            path=EnvVar("DUCKDB_PATH"),
         ),
         "openai": OpenAIResource(
             api_key=EnvVar("OPENAI_API_KEY"),

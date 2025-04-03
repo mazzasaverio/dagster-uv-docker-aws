@@ -1,0 +1,877 @@
+=== Repository Structure ===
+
+📁 data/
+  📁 extracted/
+  📁 pdfs/
+    📄 Report-ESG-2022_IT.pdf
+    📄 hon-esg-report.pdf
+📁 src/
+  📁 assets/
+    📄 s1_extract_pdf_text.py
+    📄 s2_structured_info.py
+    📄 s3_db_load.py
+  📁 resources/
+    📄 __init__.py
+    📄 openai.py
+    📄 postgres.py
+    📄 storage.py
+  📁 types/
+    📄 documents.py
+  📄 __init__.py
+  📄 definitions.py
+📁 terraform/
+  📄 main.tf
+  📄 outputs.tf
+  📄 variables.tf
+📄 .env
+📄 .env.example
+📄 .python-version
+📄 README.md
+📄 pyproject.toml
+📄 repository_content.txt
+📄 uv.lock
+
+
+=== File Contents ===
+
+
+================================================================================
+File: pyproject.toml
+================================================================================
+
+[project]
+name = "dagster-uv-docker-aws"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.37.24",
+    "dagster>=1.10.7",
+    "dagster-aws>=0.26.7",
+    "dagster-duckdb>=0.26.7",
+    "dagster-openai>=0.26.7",
+    "dagster-webserver>=1.10.7",
+    "openai>=1.70.0",
+    "pandas>=2.2.3",
+    "psycopg2-binary>=2.9.10",
+    "pydantic>=2.11.1",
+    "unstructured[pdf]>=0.17.2",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.398",
+    "pytest>=8.3.5",
+    "ruff>=0.11.2",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.dagster]
+module_name = "src.definitions"
+code_location_name = "src"
+
+
+
+================================================================================
+File: README.md
+================================================================================
+
+## **Overview**
+
+Template to implement a pipeline using Dagster to extract text from PDF files, generate structured data using OpenAI's API, and store the results in a PostgreSQL database. The project is designed with scalability, modularity, and best practices in mind, making it suitable for both local development and cloud deployments.
+
+---
+
+## **Features**
+
+- **PDF Text Extraction**: Reads PDF files from local storage or S3 and extracts text using the `unstructured` library.
+- **Structured Data Generation**: Processes extracted text with OpenAI to produce structured JSON data.
+- **PostgreSQL Storage**: Stores structured data in a PostgreSQL database for querying and analysis.
+- **Dagster Integration**: Leverages Dagster's software-defined assets (SDAs) for modular pipeline orchestration.
+- **Cloud-Ready**: Supports AWS RDS for PostgreSQL and S3 for storage.
+- **Extensible Design**: Easily add new steps or modify existing ones without disrupting the pipeline.
+
+---
+
+## **Pipeline Workflow**
+
+The pipeline consists of three sequential steps:
+
+1. **PDF Text Extraction**:
+    - Reads PDF files from a configurable storage backend (local filesystem or S3).
+    - Extracts text using the `unstructured` library.
+    - Saves the extracted text as JSON files.
+2. **Structured Data Generation**:
+    - Processes the extracted text with OpenAI's API.
+    - Generates structured data based on a predefined schema.
+    - Saves the structured data as JSON files.
+3. **PostgreSQL Storage**:
+    - Ingests the structured JSON files into a PostgreSQL database.
+    - Creates tables dynamically based on the schema if they do not exist.
+
+---
+
+## **Setup Instructions**
+
+### Prerequisites
+
+1. Python 3.12+ installed.
+2. PostgreSQL installed locally or an AWS RDS instance configured.
+3. AWS CLI configured (if using S3 or RDS).
+4. Docker installed (optional for containerized deployments).
+
+
+
+================================================================================
+File: terraform/outputs.tf
+================================================================================
+
+
+
+
+================================================================================
+File: terraform/variables.tf
+================================================================================
+
+
+
+
+================================================================================
+File: terraform/main.tf
+================================================================================
+
+
+
+
+================================================================================
+File: src/definitions.py
+================================================================================
+
+from dagster import (
+    Definitions,
+    EnvVar,
+    load_assets_from_modules,
+    ScheduleDefinition,
+    define_asset_job,
+)
+from dagster_aws.s3 import S3Resource
+from src.resources.postgres import PostgreSQLResource
+from src.resources.storage import StorageResource, StorageType
+from src.resources.openai import OpenAIResource
+import os
+
+from src.assets import s1_extract_pdf_text, s2_structured_info, s3_db_load
+
+
+def get_resource_defs():
+    deployment_name = os.getenv("DAGSTER_DEPLOYMENT", "local")
+
+    common_resources = {
+        "postgres": PostgreSQLResource(
+            host=EnvVar("POSTGRES_HOST"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            dbname=EnvVar("POSTGRES_DB"),
+            user=EnvVar("POSTGRES_USER"),
+            password=EnvVar("POSTGRES_PASSWORD"),
+        ),
+        "openai": OpenAIResource(
+            api_key=EnvVar("OPENAI_API_KEY"),
+            model=os.getenv("OPENAI_MODEL", "gpt-4"),
+        ),
+    }
+
+    env_specific_resources = {
+        "local": {
+            "storage": StorageResource(
+                storage_type=StorageType.LOCAL,
+                local_base_path=os.getenv("LOCAL_STORAGE_PATH", "./data"),
+                s3_bucket_name=None,
+            ),
+        },
+        "production": {
+            "storage": StorageResource(
+                storage_type=StorageType.S3,
+                local_base_path=None,
+                s3_bucket_name=EnvVar("S3_BUCKET_NAME"),
+            ),
+            "s3": S3Resource(
+                region_name=os.getenv("AWS_REGION", "us-east-1"),
+            ),
+        },
+    }
+
+    return {**common_resources, **env_specific_resources[deployment_name]}
+
+
+# Definizioni Dagster
+defs = Definitions(
+    assets=load_assets_from_modules(
+        [s1_extract_pdf_text, s2_structured_info, s3_db_load]
+    ),
+    resources=get_resource_defs(),
+    schedules=[
+        ScheduleDefinition(
+            name="daily_pdf_processing",
+            cron_schedule="0 0 * * *",
+            job=define_asset_job(
+                name="daily_pdf_processing_job",
+                selection="*",
+            ),
+        )
+    ],
+)
+
+
+
+================================================================================
+File: src/__init__.py
+================================================================================
+
+
+
+
+
+================================================================================
+File: src/resources/storage.py
+================================================================================
+
+from dagster import ConfigurableResource, get_dagster_logger
+from pydantic import Field
+from enum import Enum
+from pathlib import Path
+import os
+import json
+from typing import BinaryIO, Dict, List, Optional, Union, Any
+
+logger = get_dagster_logger()
+
+
+class StorageType(str, Enum):
+    LOCAL = "local"
+    S3 = "s3"
+
+
+class StorageResource(ConfigurableResource):
+    """Resource for handling file storage, either local or S3."""
+
+    storage_type: StorageType
+    local_base_path: Optional[str] = None
+    s3_bucket_name: Optional[str] = None
+
+    def validate_config(self) -> None:
+        """Validate storage configuration"""
+        if self.storage_type == StorageType.LOCAL and not self.local_base_path:
+            raise ValueError("local_base_path must be provided for local storage")
+        if self.storage_type == StorageType.S3 and not self.s3_bucket_name:
+            raise ValueError("s3_bucket_name must be provided for S3 storage")
+
+    def setup_for_execution(self, context) -> None:
+        """Initialize storage"""
+        self.validate_config()
+        if self.storage_type == StorageType.LOCAL:
+            os.makedirs(self.local_base_path, exist_ok=True)
+
+    def list_files(self, folder_path: str, extension: str = None) -> List[str]:
+        """List files in a folder with optional extension filter."""
+        if self.storage_type == StorageType.LOCAL:
+            base_dir = Path(self.local_base_path) / folder_path
+            if not base_dir.exists():
+                logger.warning(f"Directory {base_dir} does not exist.")
+                return []
+            files = list(base_dir.glob(f"*{extension if extension else ''}"))
+            return [
+                str(f.relative_to(Path(self.local_base_path)))
+                for f in files
+                if f.is_file()
+            ]
+        elif self.storage_type == StorageType.S3:
+            import boto3
+
+            s3_client = boto3.client("s3")
+            try:
+                response = s3_client.list_objects_v2(
+                    Bucket=self.s3_bucket_name, Prefix=folder_path
+                )
+                if "Contents" not in response:
+                    return []
+                return [
+                    item["Key"]
+                    for item in response["Contents"]
+                    if not extension or item["Key"].endswith(extension)
+                ]
+            except Exception as e:
+                logger.error(f"Error listing S3 files: {e}")
+                return []
+
+    def read_file(self, file_path: str) -> BinaryIO:
+        """Read a file from storage."""
+        if self.storage_type == StorageType.LOCAL:
+            full_path = Path(self.local_base_path) / file_path
+            return open(full_path, "rb")
+        elif self.storage_type == StorageType.S3:
+            import boto3
+
+            s3_client = boto3.client("s3")
+            import io
+
+            data = io.BytesIO()
+            try:
+                s3_client.download_fileobj(self.s3_bucket_name, file_path, data)
+                data.seek(0)
+                return data
+            except Exception as e:
+                logger.error(f"Error reading S3 file {file_path}: {e}")
+                raise
+
+    def write_file(
+        self, file_path: str, content: Union[bytes, str, Dict[str, Any]]
+    ) -> str:
+        """Write content to a file in storage."""
+        if self.storage_type == StorageType.LOCAL:
+            full_path = Path(self.local_base_path) / file_path
+            os.makedirs(full_path.parent, exist_ok=True)
+            mode = "wb" if isinstance(content, bytes) else "w"
+            with open(full_path, mode) as f:
+                if isinstance(content, (dict, list)):
+                    json.dump(content, f)
+                else:
+                    f.write(content)
+            return str(full_path)
+        elif self.storage_type == StorageType.S3:
+            import boto3
+
+            s3_client = boto3.client("s3")
+            try:
+                if isinstance(content, (dict, list)):
+                    content = json.dumps(content).encode("utf-8")
+                elif isinstance(content, str):
+                    content = content.encode("utf-8")
+                s3_client.put_object(
+                    Bucket=self.s3_bucket_name, Key=file_path, Body=content
+                )
+                return f"s3://{self.s3_bucket_name}/{file_path}"
+            except Exception as e:
+                logger.error(f"Error writing to S3 file {file_path}: {e}")
+                raise
+
+    def read_json(self, file_path: str) -> Dict[str, Any]:
+        """Read JSON file from storage."""
+        if self.storage_type == StorageType.LOCAL:
+            full_path = Path(self.local_base_path) / file_path
+            with open(full_path) as f:
+                return json.load(f)
+        elif self.storage_type == StorageType.S3:
+            import boto3
+
+            s3_client = boto3.client("s3")
+            try:
+                response = s3_client.get_object(
+                    Bucket=self.s3_bucket_name, Key=file_path
+                )
+                return json.loads(response["Body"].read().decode("utf-8"))
+            except Exception as e:
+                logger.error(f"Error reading S3 JSON file {file_path}: {e}")
+                raise
+
+    def get_full_path(self, subfolder: str) -> str:
+        """Get the full path for a subfolder based on storage type."""
+        if self.storage_type == StorageType.LOCAL:
+            if not self.local_base_path:
+                raise ValueError("local_base_path must be set for local storage")
+            full_path = Path(self.local_base_path) / subfolder
+            full_path.mkdir(parents=True, exist_ok=True)
+            return str(full_path)
+        elif self.storage_type == StorageType.S3:
+            if not self.s3_bucket_name:
+                raise ValueError("s3_bucket_name must be set for S3 storage")
+            return f"s3://{self.s3_bucket_name}/{subfolder}"
+        else:
+            raise ValueError(f"Unsupported storage type: {self.storage_type}")
+
+
+
+================================================================================
+File: src/resources/openai.py
+================================================================================
+
+from dagster import ConfigurableResource, get_dagster_logger
+from typing import Dict, Any, Optional
+
+logger = get_dagster_logger()
+
+
+class OpenAIResource(ConfigurableResource):
+    """Resource for interacting with OpenAI API."""
+
+    api_key: str
+    model: str = "gpt-4"
+    temperature: float = 0.0
+    max_tokens: int = 1000
+
+    def setup_for_execution(self, _) -> None:
+        """Initialize OpenAI client."""
+        import openai
+
+        self._client = openai.Client(api_key=self.api_key)
+
+    def extract_structured_data(
+        self,
+        text: str,
+        output_schema: Dict[str, Any],
+        system_prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Extract structured data from text using OpenAI's chat completion API.
+
+        Args:
+            text (str): The input text to process.
+            output_schema (Dict[str, Any]): The schema for the structured output.
+            system_prompt (Optional[str]): A custom system prompt for the AI model.
+
+        Returns:
+            Dict[str, Any]: Structured data extracted from the input text.
+        """
+        if not hasattr(self, "_client"):
+            raise RuntimeError(
+                "OpenAI client is not initialized. Did you call setup_for_execution?"
+            )
+
+        default_prompt = (
+            "You are a helpful assistant that extracts structured information from text. "
+            "Use the provided schema to format your response. If a field cannot be extracted, use null."
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt or default_prompt},
+            {"role": "user", "content": f"Schema: {output_schema}\n\nText:\n{text}"},
+        ]
+
+        try:
+            logger.info("Sending request to OpenAI...")
+            response = self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+            )
+
+            logger.info("Response received from OpenAI.")
+            return response["choices"][0]["message"]["content"]
+
+        except Exception as e:
+            logger.error(f"Error during OpenAI API call: {e}")
+            raise
+
+
+
+================================================================================
+File: src/resources/postgres.py
+================================================================================
+
+from dagster import ConfigurableResource, get_dagster_logger
+import psycopg2
+from psycopg2 import sql
+from psycopg2.extras import execute_batch
+from typing import Any, Dict, List
+
+logger = get_dagster_logger()
+
+
+class PostgreSQLResource(ConfigurableResource):
+    """Manages PostgreSQL/RDS connections and operations"""
+
+    host: str
+    port: int = 5432  # Dagster gestirà la conversione automaticamente
+    dbname: str
+    user: str
+    password: str
+
+    def validate_config(self) -> None:
+        """Validate resource configuration"""
+        if not all([self.host, self.dbname, self.user, self.password]):
+            raise ValueError("All PostgreSQL connection parameters must be provided")
+
+    def setup_for_execution(self, context) -> None:
+        """Initialize database connection"""
+        self.validate_config()
+        self._conn = psycopg2.connect(
+            host=self.host,
+            port=self.port,
+            dbname=self.dbname,
+            user=self.user,
+            password=self.password,
+        )
+        self._conn.autocommit = False
+
+    def execute_query(self, query: str, params: tuple = None) -> List[Dict[str, Any]]:
+        """Execute a SELECT query and return results as dicts"""
+        with self._conn.cursor() as cursor:
+            cursor.execute(query, params)
+            if cursor.description:
+                columns = [desc[0] for desc in cursor.description]
+                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return []
+
+    def execute_batch(self, query: str, data: List[tuple]) -> int:
+        """Execute a batch INSERT/UPDATE operation"""
+        with self._conn.cursor() as cursor:
+            execute_batch(cursor, query, data)
+            rowcount = cursor.rowcount
+            self._conn.commit()
+        return rowcount
+
+    def table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database"""
+        query = """
+            SELECT EXISTS (
+                SELECT 1 
+                FROM information_schema.tables 
+                WHERE table_name = %s
+            );
+        """
+        return self.execute_query(query, (table_name,))[0]["exists"]
+
+    def create_documents_table(self, schema: Dict[str, str]) -> None:
+        """Create table with dynamic schema"""
+        if self.table_exists("documents"):
+            return
+
+        fields = [
+            sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(data_type))
+            for col_name, data_type in schema.items()
+        ]
+
+        query = sql.SQL(
+            """
+            CREATE TABLE documents (
+                id SERIAL PRIMARY KEY,
+                {fields},
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        ).format(fields=sql.SQL(",\n").join(fields))
+
+        with self._conn.cursor() as cursor:
+            cursor.execute(query)
+            self._conn.commit()
+
+
+
+================================================================================
+File: src/resources/__init__.py
+================================================================================
+
+
+
+
+================================================================================
+File: src/types/documents.py
+================================================================================
+
+# src/types/documents.py
+from pydantic import BaseModel, Field
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+from enum import Enum
+
+
+class DocumentType(str, Enum):
+    PDF = "pdf"
+    TEXT = "text"
+    JSON = "json"
+
+
+class ExtractedDocument(BaseModel):
+    """Represents a document with extracted text."""
+
+    document_id: str
+    filename: str
+    document_type: DocumentType
+    extraction_date: datetime = Field(default_factory=datetime.now)
+    content: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StructuredDocument(BaseModel):
+    """Represents a document with structured data extracted."""
+
+    document_id: str
+    extraction_date: datetime = Field(default_factory=datetime.now)
+    filename: str
+    structured_data: Dict[str, Any]
+    processing_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+
+================================================================================
+File: src/assets/s3_db_load.py
+================================================================================
+
+from dagster import asset, Output, MetadataValue, Config, AssetExecutionContext
+from pydantic import BaseModel
+from typing import List, Dict, Any
+import json
+from src.resources.postgres import PostgreSQLResource
+from datetime import datetime
+
+
+class PostgreSQLStorageConfig(Config):
+    table_name: str = "documents"
+    schema_mapping: Dict[str, str] = {
+        "document_id": "VARCHAR(255)",
+        "filename": "VARCHAR(255)",
+        "title": "TEXT",
+        "author": "VARCHAR(255)",
+        "content_summary": "TEXT",
+        "metadata": "JSONB",
+    }
+
+
+@asset(
+    compute_kind="postgres",
+    group_name="documents",
+    deps=["extract_structured_data"],
+    code_version="v1",
+)
+def load_to_database(
+    context: AssetExecutionContext,
+    config: PostgreSQLStorageConfig,
+    postgres: PostgreSQLResource,
+    extract_structured_data: Dict[str, Dict],
+) -> Output[Dict[str, Any]]:
+    """Load structured data into PostgreSQL database."""
+    context.log.info("Starting database load")
+
+    try:
+        # Create table if not exists
+        postgres.execute_query(
+            f"""
+            CREATE TABLE IF NOT EXISTS {config.table_name} (
+                {', '.join(f'{k} {v}' for k, v in config.schema_mapping.items())}
+            )
+        """
+        )
+
+        # Prepare records for insertion
+        records = [
+            {
+                "document_id": doc_id,
+                **doc_data,
+                "metadata": json.dumps(
+                    {
+                        "extraction_date": doc_data.pop("extraction_date"),
+                        "processing_date": datetime.now().isoformat(),
+                    }
+                ),
+            }
+            for doc_id, doc_data in extract_structured_data.items()
+        ]
+
+        # Insert records
+        insert_query = f"""
+            INSERT INTO {config.table_name} 
+            ({', '.join(config.schema_mapping.keys())})
+            VALUES ({', '.join(['%s'] * len(config.schema_mapping))})
+        """
+
+        rows_inserted = postgres.execute_batch(
+            insert_query,
+            [(record[k] for k in config.schema_mapping.keys()) for record in records],
+        )
+
+        return Output(
+            value={"rows_inserted": rows_inserted},
+            metadata={"rows_inserted": rows_inserted, "table_name": config.table_name},
+        )
+
+    except Exception as e:
+        context.log.error(f"Database error: {str(e)}")
+        raise
+
+
+
+================================================================================
+File: src/assets/s2_structured_info.py
+================================================================================
+
+from dagster import (
+    asset,
+    Config,
+    AssetExecutionContext,
+    AssetIn,
+    get_dagster_logger,
+    Output,
+    MetadataValue,
+)
+from typing import Dict, Any
+
+from src.resources.storage import StorageResource
+from src.resources.openai import OpenAIResource
+from src.types.documents import ExtractedDocument, StructuredDocument
+
+logger = get_dagster_logger()
+
+
+class StructuredExtractionConfig(Config):
+    input_folder: str = "extracted"
+    output_folder: str = "structured"
+    batch_size: int = 10
+
+
+@asset(
+    group_name="documents",
+    compute_kind="openai",
+    deps=["extract_pdf_text"],
+    code_version="v1",
+)
+def extract_structured_data(
+    context: AssetExecutionContext,
+    config: StructuredExtractionConfig,
+    storage: StorageResource,
+    openai: OpenAIResource,
+    extract_pdf_text: Dict[str, Dict[str, str]],
+) -> Output[Dict[str, Dict]]:
+    """Extract structured data using OpenAI."""
+    context.log.info("Starting structured data extraction")
+
+    structured_documents = {}
+
+    for doc_id, doc_data in extract_pdf_text.items():
+        try:
+            context.log.info(f"Processing document {doc_data['filename']}")
+
+            structured_data = openai.extract_structured_data(
+                text=doc_data["content"],
+                output_schema={
+                    "title": "string",
+                    "author": "string",
+                    "content_summary": "string",
+                },
+            )
+
+            structured_documents[doc_id] = {
+                "filename": doc_data["filename"],
+                "extraction_date": doc_data["extraction_date"],
+                **structured_data,
+            }
+
+        except Exception as e:
+            context.log.error(f"Error processing {doc_data['filename']}: {str(e)}")
+            continue
+
+    return Output(
+        value=structured_documents,
+        metadata={
+            "documents_processed": len(structured_documents),
+            "success_rate": f"{(len(structured_documents)/len(extract_pdf_text))*100:.2f}%",
+        },
+    )
+
+
+
+================================================================================
+File: src/assets/s1_extract_pdf_text.py
+================================================================================
+
+from dagster import (
+    asset,
+    Output,
+    MetadataValue,
+    get_dagster_logger,
+    Config,
+    AssetExecutionContext,
+)
+from typing import Dict, Any
+from pathlib import Path
+import uuid
+from unstructured.partition.pdf import partition_pdf
+from datetime import datetime
+import json
+
+from src.resources.storage import StorageResource
+from src.types.documents import ExtractedDocument, DocumentType
+
+logger = get_dagster_logger()
+
+
+class PDFExtractionConfig(Config):
+    input_folder: str = "pdfs"
+    output_folder: str = "extracted"
+    batch_size: int = 10
+
+
+@asset(
+    compute_kind="pdf_extraction",
+    group_name="documents",
+    code_version="v1",
+)
+def extract_pdf_text(
+    context: AssetExecutionContext,
+    config: PDFExtractionConfig,
+    storage: StorageResource,
+) -> Output[Dict[str, Dict[str, str]]]:
+    """Extract text from PDF files."""
+    context.log.info("Starting PDF text extraction")
+
+    input_path = storage.get_full_path(config.input_folder)
+    output_path = storage.get_full_path(config.output_folder)
+    context.log.info(f"Looking for PDFs in: {input_path}")
+    context.log.info(f"Will save JSONs in: {output_path}")
+
+    # Ensure output directory exists
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+
+    pdf_files = list(Path(input_path).glob("**/*.pdf"))
+    context.log.info(f"Found {len(pdf_files)} PDF files: {[f.name for f in pdf_files]}")
+
+    if not pdf_files:
+        context.log.warning(f"No PDF files found in {input_path}")
+        return Output(value={}, metadata={"files_processed": 0})
+
+    extracted_texts = {}
+
+    for pdf_file in pdf_files:
+        try:
+            context.log.info(f"Processing {pdf_file.name}")
+            elements = partition_pdf(filename=str(pdf_file))
+            text_content = "\n".join([str(el) for el in elements])
+
+            doc_id = str(uuid.uuid4())
+            doc_data = {
+                "filename": str(pdf_file.name),
+                "content": text_content,
+                "extraction_date": datetime.now().isoformat(),
+            }
+
+            # Save to JSON file with same name as PDF
+            json_path = Path(output_path) / f"{pdf_file.stem}.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(doc_data, f, ensure_ascii=False, indent=2)
+
+            extracted_texts[doc_id] = doc_data
+            context.log.info(
+                f"Successfully processed {pdf_file.name} and saved to {json_path}"
+            )
+
+        except Exception as e:
+            context.log.error(f"Error processing {pdf_file.name}: {str(e)}")
+            context.log.exception("Full error:")
+            continue
+
+    return Output(
+        value=extracted_texts,
+        metadata={
+            "files_processed": len(extracted_texts),
+            "total_files": len(pdf_files),
+            "success_rate": f"{(len(extracted_texts)/len(pdf_files))*100:.2f}%",
+            "input_path": input_path,
+            "output_path": output_path,
+            "processed_files": [f.name for f in pdf_files],
+        },
+    )
+
+
