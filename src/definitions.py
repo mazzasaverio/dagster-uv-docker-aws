@@ -1,3 +1,4 @@
+# src/definitions.py
 from dagster import (
     Definitions,
     EnvVar,
@@ -8,7 +9,6 @@ from dagster import (
 from dagster_aws.s3 import S3Resource
 from src.resources.duckdb import DuckDBResource
 from src.resources.storage import StorageResource, StorageType
-from src.resources.openai import OpenAIResource
 import os
 
 from src.assets import s1_extract_pdf_text, s2_structured_info, s3_db_load
@@ -20,10 +20,6 @@ def get_resource_defs():
     common_resources = {
         "duckdb": DuckDBResource(
             path=EnvVar("DUCKDB_PATH"),
-        ),
-        "openai": OpenAIResource(
-            api_key=EnvVar("OPENAI_API_KEY"),
-            model=os.getenv("OPENAI_MODEL", "gpt-4"),
         ),
     }
 

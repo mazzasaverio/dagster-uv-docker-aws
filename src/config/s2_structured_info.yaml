@@ -1,0 +1,57 @@
+paper_information_extraction:
+  model: "gpt-4o-2024-08-06" 
+  messages:
+    - role: "system"
+      content: "You are an expert in analyzing technical and scientific papers. Always answer in English. Your task is to extract specific structured details from the paper content provided."
+    - role: "user"
+      content: "Analyze the content of this technical or scientific paper and extract the following details in a structured format. If a piece of information is not clearly present, omit the field or set it to null.\n\nPaper URL: {url}\n\nPaper content: {text}"
+  response_format:
+    type: "json_schema"
+    json_schema:
+      name: "paper_information_extraction"
+      schema:
+        type: "object"
+        properties:
+          title:
+            type: "string"
+            description: "The title of the paper."
+          authors:
+            type: "array"
+            description: "List of authors of the paper."
+            items:
+              type: "string"
+              description: "Name of an author."
+          abstract:
+            type: "string"
+            description: "The abstract or summary of the paper."
+          keywords:
+            type: "array"
+            description: "List of keywords or key topics mentioned in the paper."
+            items:
+              type: "string"
+              description: "A keyword or key topic."
+          methodology:
+            type: "string"
+            description: "A summary of the methodology or approach used in the research."
+          key_findings:
+            type: "array"
+            description: "List of main results or findings from the paper."
+            items:
+              type: "string"
+              description: "A key result or finding."
+          conclusions:
+            type: "string"
+            description: "The main conclusions or implications of the research."
+          proposed_models:
+            type: "array"
+            description: "List of models, algorithms, or frameworks proposed in the paper."
+            items:
+              type: "string"
+              description: "A model, algorithm, or framework proposed."
+          future_work:
+            type: "string"
+            description: "Suggestions for future research mentioned in the paper."
+        required: ["title", "authors", "abstract", "keywords", "methodology", "key_findings", "conclusions", "proposed_models", "future_work"]
+        additionalProperties: False
+      strict: True 
+

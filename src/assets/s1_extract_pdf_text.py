@@ -20,8 +20,8 @@ logger = get_dagster_logger()
 
 
 class PDFExtractionConfig(Config):
-    input_folder: str = "pdfs"
-    output_folder: str = "extracted"
+    input_folder: str = "raw"
+    output_folder: str = "s1_extract_pdf_text"
     batch_size: int = 10
 
 

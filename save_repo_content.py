@@ -20,8 +20,12 @@ def should_include_file(file_path):
         ".DS_Store",
         "Thumbs.db",
         "save_repo_content.py",
-        ".json",
     ]
+
+    # Skip files within data directories, but include the directories themselves in structure
+    path_parts = pathlib.Path(file_path).parts
+    if "data" in path_parts and len(path_parts) > path_parts.index("data") + 1:
+        return False
 
     # Check if any pattern matches the file path
     return not any(pattern in str(file_path) for pattern in exclude_patterns)
@@ -68,6 +72,7 @@ def save_repo_content(output_file="repository_content.txt"):
         ".toml",
         ".tf",
         ".env.example",
+        ".json",  # Added to include JSON files like launch.json
     }
 
     with open(output_file, "w", encoding="utf-8") as f:
@@ -81,13 +86,27 @@ def save_repo_content(output_file="repository_content.txt"):
         f.write("\n=== File Contents ===\n\n")
 
         for root, _, files in os.walk("."):
+            # Skip content inside data directories
+            path = pathlib.Path(root)
+            if "data" in path.parts and len(path.parts) > path.parts.index("data") + 1:
+                continue
+
             for file in files:
-                file_path = pathlib.Path(root) / file
+                file_path = path / file
 
                 if not should_include_file(file_path):
                     continue
 
-                if file_path.suffix in important_extensions or file == ".gitignore":
+                # Special case for .vscode/launch.json and other important files
+                is_vscode_config = (
+                    ".vscode" in str(file_path) and file_path.suffix == ".json"
+                )
+
+                if (
+                    file_path.suffix in important_extensions
+                    or file == ".gitignore"
+                    or is_vscode_config
+                ):
                     f.write(f"\n{'='*80}\n")
                     f.write(f"File: {file_path}\n")
                     f.write(f"{'='*80}\n\n")

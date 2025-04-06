@@ -1,22 +1,26 @@
 === Repository Structure ===
 
+📁 .vscode/
+  📄 launch.json
 📁 data/
-  📁 extracted/
-  📁 pdfs/
-    📄 Report-ESG-2022_IT.pdf
-    📄 hon-esg-report.pdf
 📁 src/
   📁 assets/
     📄 s1_extract_pdf_text.py
     📄 s2_structured_info.py
     📄 s3_db_load.py
+  📁 config/
+    📄 s2_structured_info.yaml
   📁 resources/
     📄 __init__.py
-    📄 openai.py
-    📄 postgres.py
+    📄 duckdb.py
     📄 storage.py
+  📁 services/
+    📄 llm_processor.py
+    📄 structured_output_processor.py
   📁 types/
     📄 documents.py
+  📁 utils/
+    📄 config_loader.py
   📄 __init__.py
   📄 definitions.py
 📁 terraform/
@@ -52,6 +56,7 @@ dependencies = [
     "dagster-duckdb>=0.26.7",
     "dagster-openai>=0.26.7",
     "dagster-webserver>=1.10.7",
+    "logfire>=3.12.0",
     "openai>=1.70.0",
     "pandas>=2.2.3",
     "psycopg2-binary>=2.9.10",
@@ -82,7 +87,10 @@ File: README.md
 
 ## **Overview**
 
-Template to implement a pipeline using Dagster to extract text from PDF files, generate structured data using OpenAI's API, and store the results in a PostgreSQL database. The project is designed with scalability, modularity, and best practices in mind, making it suitable for both local development and cloud deployments.
+Template to implement a pipeline using Dagster to extract text from PDF files, generate structured data using OpenAI's API, and store the results in a duckDB. The project is designed with scalability, modularity, and best practices in mind, making it suitable for both local development and cloud deployments.
+
+- Quindi primo step
+
 
 ---
 
@@ -90,7 +98,7 @@ Template to implement a pipeline using Dagster to extract text from PDF files, g
 
 - **PDF Text Extraction**: Reads PDF files from local storage or S3 and extracts text using the `unstructured` library.
 - **Structured Data Generation**: Processes extracted text with OpenAI to produce structured JSON data.
-- **PostgreSQL Storage**: Stores structured data in a PostgreSQL database for querying and analysis.
+- **DuckDB Storage**: Store structured data in DuckDB file-based database
 - **Dagster Integration**: Leverages Dagster's software-defined assets (SDAs) for modular pipeline orchestration.
 - **Cloud-Ready**: Supports AWS RDS for PostgreSQL and S3 for storage.
 - **Extensible Design**: Easily add new steps or modify existing ones without disrupting the pipeline.
@@ -120,10 +128,43 @@ The pipeline consists of three sequential steps:
 ### Prerequisites
 
 1. Python 3.12+ installed.
-2. PostgreSQL installed locally or an AWS RDS instance configured.
 3. AWS CLI configured (if using S3 or RDS).
 4. Docker installed (optional for containerized deployments).
 
+
+
+dagster dev -m src.definitions
+
+
+================================================================================
+File: .vscode/launch.json
+================================================================================
+
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Dagster",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "dagster",
+        "args": [
+          "dev"
+        ],
+        "subProcess": true,
+        "pythonArgs": ["-Xfrozen_modules=off"],  // Disabilita i frozen modules
+        "env": {
+          "PYDEVD_DISABLE_FILE_VALIDATION": "1"  // Sopprime gli avvisi del debugger
+        },
+        "serverReadyAction": {
+          "pattern": "Serving dagster-webserver",
+          "uriFormat": "http://127.0.0.1:3000",
+          "action": "openExternally"
+        }
+      }
+    ]
+  }
+  
 
 
 ================================================================================
@@ -151,6 +192,7 @@ File: terraform/main.tf
 File: src/definitions.py
 ================================================================================
 
+# src/definitions.py
 from dagster import (
     Definitions,
     EnvVar,
@@ -159,9 +201,9 @@ from dagster import (
     define_asset_job,
 )
 from dagster_aws.s3 import S3Resource
-from src.resources.postgres import PostgreSQLResource
+from src.resources.duckdb import DuckDBResource
 from src.resources.storage import StorageResource, StorageType
-from src.resources.openai import OpenAIResource
+from src.resources.openai import AzureOpenAIResource
 import os
 
 from src.assets import s1_extract_pdf_text, s2_structured_info, s3_db_load
@@ -171,16 +213,13 @@ def get_resource_defs():
     deployment_name = os.getenv("DAGSTER_DEPLOYMENT", "local")
 
     common_resources = {
-        "postgres": PostgreSQLResource(
-            host=EnvVar("POSTGRES_HOST"),
-            port=int(os.getenv("POSTGRES_PORT", "5432")),
-            dbname=EnvVar("POSTGRES_DB"),
-            user=EnvVar("POSTGRES_USER"),
-            password=EnvVar("POSTGRES_PASSWORD"),
+        "duckdb": DuckDBResource(
+            path=EnvVar("DUCKDB_PATH"),
         ),
-        "openai": OpenAIResource(
-            api_key=EnvVar("OPENAI_API_KEY"),
-            model=os.getenv("OPENAI_MODEL", "gpt-4"),
+        "openai": AzureOpenAIResource(
+            api_key=EnvVar("AZURE_OPENAI_API_KEY"),
+            endpoint=EnvVar("AZURE_OPENAI_ENDPOINT"),
+            model=os.getenv("OPENAI_MODEL"),
         ),
     }
 
@@ -231,6 +270,52 @@ defs = Definitions(
 File: src/__init__.py
 ================================================================================
 
+
+
+
+
+================================================================================
+File: src/config/s2_structured_info.yaml
+================================================================================
+
+job_detail_extraction:
+  model: "gpt-4o-2024-08-06" # Or your preferred model
+  messages:
+    - role: "system"
+      content: "You are an expert in analyzing individual job posting pages. Always answer in English. Your task is to extract specific structured details from the job description content provided."
+    - role: "user"
+      content: "Analyze the content of this job posting page and extract the following details in a structured format. If a piece of information is not clearly present, omit the field or set it to null.\n\nPage URL: {url}\n\nPage content: {text}"
+  response_format:
+    type: "json_schema"
+    json_schema:
+      name: "job_detail_extraction"
+      schema:
+        type: "object"
+        properties:
+          description:
+            type: "string"  
+            description: "A brief summary or overview of the job role."
+          responsibilities: 
+            type: "array"
+            description: "List of key responsibilities or tasks for the role."
+            items:
+              type: "string"
+              description: "A key responsibility or task for the role."
+          qualifications:
+            type: "array"
+            description: "List of required or preferred qualifications, skills, or experience."
+            items:
+              type: "string"
+              description: "A required or preferred qualification, skill, or experience for the role."
+          location:
+            type: "string"
+            description: "The primary work location(s) mentioned (e.g., 'San Francisco, CA', 'Remote', 'Hybrid - London'). Be specific."
+          salary_range:
+            type: "string"
+            description: "Any mention of salary, compensation range, or benefits (e.g., '$100,000 - $130,000 per year', 'Competitive + Equity')."
+        required: ["description", "responsibilities", "qualifications", "location", "salary_range"]
+        additionalProperties: False
+      strict: True 
 
 
 
@@ -395,169 +480,92 @@ class StorageResource(ConfigurableResource):
 
 
 ================================================================================
-File: src/resources/openai.py
+File: src/resources/duckdb.py
 ================================================================================
 
-from dagster import ConfigurableResource, get_dagster_logger
-from typing import Dict, Any, Optional
+import duckdb
+import os
+from typing import Any, Dict, List, Optional, Union
 
-logger = get_dagster_logger()
-
-
-class OpenAIResource(ConfigurableResource):
-    """Resource for interacting with OpenAI API."""
-
-    api_key: str
-    model: str = "gpt-4"
-    temperature: float = 0.0
-    max_tokens: int = 1000
-
-    def setup_for_execution(self, _) -> None:
-        """Initialize OpenAI client."""
-        import openai
-
-        self._client = openai.Client(api_key=self.api_key)
-
-    def extract_structured_data(
-        self,
-        text: str,
-        output_schema: Dict[str, Any],
-        system_prompt: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        Extract structured data from text using OpenAI's chat completion API.
-
-        Args:
-            text (str): The input text to process.
-            output_schema (Dict[str, Any]): The schema for the structured output.
-            system_prompt (Optional[str]): A custom system prompt for the AI model.
-
-        Returns:
-            Dict[str, Any]: Structured data extracted from the input text.
-        """
-        if not hasattr(self, "_client"):
-            raise RuntimeError(
-                "OpenAI client is not initialized. Did you call setup_for_execution?"
-            )
-
-        default_prompt = (
-            "You are a helpful assistant that extracts structured information from text. "
-            "Use the provided schema to format your response. If a field cannot be extracted, use null."
-        )
-
-        messages = [
-            {"role": "system", "content": system_prompt or default_prompt},
-            {"role": "user", "content": f"Schema: {output_schema}\n\nText:\n{text}"},
-        ]
-
-        try:
-            logger.info("Sending request to OpenAI...")
-            response = self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
-
-            logger.info("Response received from OpenAI.")
-            return response["choices"][0]["message"]["content"]
-
-        except Exception as e:
-            logger.error(f"Error during OpenAI API call: {e}")
-            raise
+from dagster_duckdb import DuckDBResource
+import dagster as dg
 
 
-
-================================================================================
-File: src/resources/postgres.py
-================================================================================
-
-from dagster import ConfigurableResource, get_dagster_logger
-import psycopg2
-from psycopg2 import sql
-from psycopg2.extras import execute_batch
-from typing import Any, Dict, List
-
-logger = get_dagster_logger()
+logger = dg.get_dagster_logger()
 
 
-class PostgreSQLResource(ConfigurableResource):
-    """Manages PostgreSQL/RDS connections and operations"""
+class DuckDBResource(ConfigurableResource):
+    """Resource for DuckDB database operations using a file-based database."""
 
-    host: str
-    port: int = 5432  # Dagster gestirà la conversione automaticamente
-    dbname: str
-    user: str
-    password: str
-
-    def validate_config(self) -> None:
-        """Validate resource configuration"""
-        if not all([self.host, self.dbname, self.user, self.password]):
-            raise ValueError("All PostgreSQL connection parameters must be provided")
+    path: Optional[str] = None
+    read_only: bool = False
 
     def setup_for_execution(self, context) -> None:
-        """Initialize database connection"""
-        self.validate_config()
-        self._conn = psycopg2.connect(
-            host=self.host,
-            port=self.port,
-            dbname=self.dbname,
-            user=self.user,
-            password=self.password,
-        )
-        self._conn.autocommit = False
+        """Initialize DuckDB connection using environment variable or provided path."""
+        db_path = self.path or os.environ.get("DUCKDB_PATH")
+        if not db_path:
+            raise ValueError(
+                "DuckDB path must be provided either in config or DUCKDB_PATH environment variable"
+            )
 
-    def execute_query(self, query: str, params: tuple = None) -> List[Dict[str, Any]]:
-        """Execute a SELECT query and return results as dicts"""
-        with self._conn.cursor() as cursor:
-            cursor.execute(query, params)
-            if cursor.description:
-                columns = [desc[0] for desc in cursor.description]
-                return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+        # Connect to database
+        self._conn = duckdb.connect(database=db_path, read_only=self.read_only)
+        logger.info(
+            f"Connected to DuckDB at {db_path} ({'read-only' if self.read_only else 'read-write'})"
+        )
+
+    def create_table(self, table_name: str, schema: Dict[str, str]) -> None:
+        """Create a table if it doesn't exist."""
+        create_stmt = f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                {', '.join(f'{k} {v}' for k, v in schema.items())}
+            );
+        """
+        self._conn.execute(create_stmt)
+        logger.info(f"Created table {table_name} (if not exists)")
+
+    def execute_query(self, query: str, params: Union[tuple, list, dict] = None) -> Any:
+        """Execute a SQL query with optional parameters."""
+        result = self._conn.execute(query, params if params else [])
+        return result
+
+    def execute_and_fetch(
+        self, query: str, params: Union[tuple, list, dict] = None
+    ) -> List[Dict[str, Any]]:
+        """Execute a query and return results as dictionaries."""
+        result = self.execute_query(query, params)
+        if result.description:
+            columns = [desc[0] for desc in result.description]
+            return [dict(zip(columns, row)) for row in result.fetchall()]
         return []
 
     def execute_batch(self, query: str, data: List[tuple]) -> int:
-        """Execute a batch INSERT/UPDATE operation"""
-        with self._conn.cursor() as cursor:
-            execute_batch(cursor, query, data)
-            rowcount = cursor.rowcount
-            self._conn.commit()
-        return rowcount
+        """Execute a batch operation with multiple parameter sets."""
+        affected_rows = 0
+        for params in data:
+            result = self._conn.execute(query, params)
+            affected_rows += result.execute_n_rows()
+        return affected_rows
 
     def table_exists(self, table_name: str) -> bool:
-        """Check if a table exists in the database"""
-        query = """
-            SELECT EXISTS (
-                SELECT 1 
-                FROM information_schema.tables 
-                WHERE table_name = %s
-            );
-        """
-        return self.execute_query(query, (table_name,))[0]["exists"]
+        """Check if a table exists in the database."""
+        result = self._conn.execute(
+            f"SELECT count(*) FROM information_schema.tables WHERE table_name = '{table_name}'"
+        )
+        return result.fetchone()[0] > 0
 
-    def create_documents_table(self, schema: Dict[str, str]) -> None:
-        """Create table with dynamic schema"""
-        if self.table_exists("documents"):
-            return
+    def commit(self) -> None:
+        """Commit the current transaction."""
+        self._conn.commit()
 
-        fields = [
-            sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(data_type))
-            for col_name, data_type in schema.items()
-        ]
-
-        query = sql.SQL(
-            """
-            CREATE TABLE documents (
-                id SERIAL PRIMARY KEY,
-                {fields},
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        ).format(fields=sql.SQL(",\n").join(fields))
-
-        with self._conn.cursor() as cursor:
-            cursor.execute(query)
-            self._conn.commit()
+    def close(self) -> None:
+        """Close the database connection."""
+        if hasattr(self, "_conn"):
+            self._conn.close()
+            logger.info("Closed DuckDB connection")
 
 
 
@@ -565,6 +573,228 @@ class PostgreSQLResource(ConfigurableResource):
 File: src/resources/__init__.py
 ================================================================================
 
+
+
+
+================================================================================
+File: src/utils/config_loader.py
+================================================================================
+
+"""Utility module for loading configuration files."""
+
+import os
+import yaml
+import logfire
+from pathlib import Path
+from typing import Dict, Any
+
+# Get repository root path
+repo_root = os.getenv(
+    "PROJECT_ROOT",
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+)
+
+
+def load_prompt_config(
+    config_name: str = "job_extraction", section: str = None
+) -> Dict[str, Any]:
+    """Load prompt configuration from YAML file.
+
+    Args:
+        config_name (str): Name of the config file (without .yaml extension)
+        section (str, optional): Section within the config to extract. If None, returns entire config.
+
+    Returns:
+        Dict[str, Any]: Configuration dictionary
+    """
+    config_path = Path(repo_root) / "src" / "config" / f"{config_name}.yaml"
+
+    logfire.info(f"Loading prompt config from {config_path}")
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+
+        if section and section in config:
+            config = config[section]
+
+        return config
+    except Exception as e:
+        logfire.error(
+            f"Error loading config from {config_path}: {str(e)}", exc_info=True
+        )
+        # Return a minimal default config if file cannot be loaded
+        default_config = {
+            "model": "gpt-4o",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are an expert in analyzing job listings.",
+                },
+                {
+                    "role": "user",
+                    "content": "Extract job listings from this page: {text}",
+                },
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        logfire.info("Using default prompt config due to config loading failure")
+        return default_config
+
+
+
+================================================================================
+File: src/services/structured_output_processor.py
+================================================================================
+
+import os
+import json
+import logfire
+from typing import Dict, Any
+from dotenv import load_dotenv
+from openai import AzureOpenAI
+
+from src.services.llm_processor import LLMProcessor
+
+load_dotenv()
+
+
+async def process_content(
+    source_url: str, content_text: str, llm_config: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Process job posting content using LLM to extract structured information.
+
+    Args:
+        source_url (str): The URL of the job posting
+        content_text (str): The extracted text content from the job posting
+        llm_config (Dict[str, Any]): Configuration for the LLM processing
+
+    Returns:
+        Dict[str, Any]: Structured job details in JSON format
+    """
+
+    logfire.info(f"Processing job content from URL: {source_url}")
+
+    logfire.info(f"Content text: {content_text}")
+
+    logfire.info(f"LLM config: {llm_config}")
+
+    # Initialize Azure OpenAI client
+    client = AzureOpenAI(
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        api_version="2024-12-01-preview",
+    )
+
+    llm_processor = LLMProcessor(client, llm_config)
+
+    response_content = await llm_processor.make_request(content_text)
+
+    job_details = json.loads(response_content)
+
+    logfire.info(f"Successfully processed job content from {source_url}")
+    return job_details
+
+
+
+================================================================================
+File: src/services/llm_processor.py
+================================================================================
+
+import json
+import logfire
+from typing import Dict, List, Any, Optional
+from openai import AzureOpenAI
+import copy
+import time
+import asyncio
+
+
+class LLMProcessor:
+    """Handles LLM requests to Azure OpenAI with configurable prompts."""
+
+    def __init__(self, client, config_prompt):
+        self.client = client
+        self.config_prompt = config_prompt
+        self.last_api_call_time = 0  # Timestamp dell'ultima chiamata API
+
+        if "messages" not in self.config_prompt:
+            raise ValueError("Config must contain 'messages' key")
+        if "model" not in self.config_prompt:
+            raise ValueError("Config must contain 'model' key")
+
+        logfire.info(
+            f"Initialized LLMProcessor with model: {self.config_prompt['model']}"
+        )
+
+    async def make_request(self, text, fields_to_extract=None):
+        try:
+            messages = self._prepare_messages(text)
+            if not messages:
+                raise ValueError("Failed to prepare messages")
+
+            response_format = self._prepare_response_format(fields_to_extract)
+
+            # Controllo semplice per il rate limiting
+            current_time = time.time()
+            time_since_last_call = current_time - self.last_api_call_time
+
+            if time_since_last_call < 10:  # 10 secondi tra le chiamate
+                wait_time = 10 - time_since_last_call
+                logfire.info(f"Waiting {wait_time:.2f} seconds before next API call")
+                await asyncio.sleep(wait_time)
+
+            # Aggiorna il timestamp prima della chiamata
+            self.last_api_call_time = time.time()
+
+            response = self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                response_format=response_format,
+                temperature=0,
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            logfire.error(f"Error in make_request: {str(e)}", exc_info=True)
+            raise
+
+    def _prepare_messages(self, text):
+        try:
+            if not text:
+                return None
+
+            messages = copy.deepcopy(self.config_prompt["messages"])
+
+            for message in messages:
+                if message["role"] == "user":
+                    message["content"] = message["content"].replace("{text}", text)
+
+            return messages
+
+        except Exception as e:
+            logfire.error(f"Error in _prepare_messages: {str(e)}", exc_info=True)
+            raise
+
+    def _prepare_response_format(self, fields_to_extract=None):
+        if not fields_to_extract:
+            return self.config_prompt.get("response_format", {"type": "json_object"})
+
+        response_format = copy.deepcopy(self.config_prompt["response_format"])
+        schema = response_format["json_schema"]["schema"]
+
+        schema["properties"] = {
+            field: schema["properties"][field]
+            for field in fields_to_extract
+            if field in schema["properties"]
+        }
+        schema["required"] = [
+            field for field in schema["required"] if field in fields_to_extract
+        ]
+
+        return response_format
 
 
 
@@ -606,86 +836,138 @@ class StructuredDocument(BaseModel):
     processing_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ESGReportData(BaseModel):
+    """Schema for structured ESG report data extraction."""
+
+    company_name: str
+    report_year: int
+    environmental_metrics: Dict[str, Any] = Field(
+        description="Environmental metrics and initiatives from the report"
+    )
+    social_metrics: Dict[str, Any] = Field(
+        description="Social metrics and initiatives from the report"
+    )
+    governance_metrics: Dict[str, Any] = Field(
+        description="Governance metrics and practices from the report"
+    )
+    sustainability_goals: List[str] = Field(
+        description="Key sustainability goals mentioned in the report"
+    )
+    carbon_emissions: Optional[Dict[str, Any]] = Field(
+        description="Carbon emissions data if available", default=None
+    )
+    key_initiatives: List[str] = Field(
+        description="Key ESG initiatives described in the report"
+    )
+    executive_summary: str = Field(
+        description="Brief executive summary of the ESG report"
+    )
+
+
 
 ================================================================================
 File: src/assets/s3_db_load.py
 ================================================================================
 
-from dagster import asset, Output, MetadataValue, Config, AssetExecutionContext
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import json
-from src.resources.postgres import PostgreSQLResource
 from datetime import datetime
 
+import dagster as dg
+from resources import duckdb
 
-class PostgreSQLStorageConfig(Config):
+
+class DuckDBStorageConfig(Config):
     table_name: str = "documents"
     schema_mapping: Dict[str, str] = {
-        "document_id": "VARCHAR(255)",
-        "filename": "VARCHAR(255)",
-        "title": "TEXT",
-        "author": "VARCHAR(255)",
-        "content_summary": "TEXT",
-        "metadata": "JSONB",
+        "document_id": "VARCHAR",
+        "filename": "VARCHAR",
+        "company_name": "VARCHAR",
+        "report_year": "INTEGER",
+        "executive_summary": "TEXT",
+        "environmental_metrics": "JSON",
+        "social_metrics": "JSON",
+        "governance_metrics": "JSON",
+        "sustainability_goals": "JSON",
+        "carbon_emissions": "JSON",
+        "key_initiatives": "JSON",
+        "metadata": "JSON",
     }
 
 
-@asset(
-    compute_kind="postgres",
-    group_name="documents",
-    deps=["extract_structured_data"],
+@dg.asset(
+    compute_kind="duckdb",
+    group_name="load_to_database",
+    deps=["extract_esg_data"],
     code_version="v1",
 )
 def load_to_database(
-    context: AssetExecutionContext,
-    config: PostgreSQLStorageConfig,
-    postgres: PostgreSQLResource,
-    extract_structured_data: Dict[str, Dict],
-) -> Output[Dict[str, Any]]:
-    """Load structured data into PostgreSQL database."""
+    context: dg.AssetExecutionContext,
+    config: DuckDBStorageConfig,
+    extract_esg_data: Dict[str, Dict],
+) -> dg.Output[Dict[str, Any]]:
+    """Load structured data into DuckDB database."""
     context.log.info("Starting database load")
 
     try:
         # Create table if not exists
-        postgres.execute_query(
-            f"""
-            CREATE TABLE IF NOT EXISTS {config.table_name} (
-                {', '.join(f'{k} {v}' for k, v in config.schema_mapping.items())}
-            )
-        """
-        )
+        duckdb.create_table(config.table_name, config.schema_mapping)
 
         # Prepare records for insertion
-        records = [
-            {
+        records = []
+        for doc_id, doc_data in extract_esg_data.items():
+            # Extract the extraction_date from doc_data
+            extraction_date = (
+                doc_data.pop("extraction_date")
+                if "extraction_date" in doc_data
+                else None
+            )
+
+            # Create metadata JSON
+            metadata = {
+                "extraction_date": extraction_date,
+                "processing_date": datetime.now().isoformat(),
+            }
+
+            # Create the record
+            record = {
                 "document_id": doc_id,
                 **doc_data,
-                "metadata": json.dumps(
-                    {
-                        "extraction_date": doc_data.pop("extraction_date"),
-                        "processing_date": datetime.now().isoformat(),
-                    }
-                ),
+                "metadata": json.dumps(metadata),
             }
-            for doc_id, doc_data in extract_structured_data.items()
-        ]
+            records.append(record)
 
         # Insert records
-        insert_query = f"""
-            INSERT INTO {config.table_name} 
-            ({', '.join(config.schema_mapping.keys())})
-            VALUES ({', '.join(['%s'] * len(config.schema_mapping))})
-        """
+        if records:
+            # Build parameters for batch insert
+            columns = config.schema_mapping.keys()
+            insert_query = f"""
+                INSERT INTO {config.table_name} 
+                ({', '.join(columns)})
+                VALUES ({', '.join(['?'] * len(columns))})
+            """
 
-        rows_inserted = postgres.execute_batch(
-            insert_query,
-            [(record[k] for k in config.schema_mapping.keys()) for record in records],
-        )
+            rows_inserted = duckdb.execute_batch(
+                insert_query, [(record.get(k) for k in columns) for record in records]
+            )
+
+            # Commit the transaction
+            duckdb.commit()
+
+            context.log.info(
+                f"Inserted {rows_inserted} records into {config.table_name}"
+            )
+        else:
+            context.log.info("No records to insert")
+            rows_inserted = 0
 
         return Output(
             value={"rows_inserted": rows_inserted},
-            metadata={"rows_inserted": rows_inserted, "table_name": config.table_name},
+            metadata={
+                "rows_inserted": MetadataValue.int(rows_inserted),
+                "table_name": MetadataValue.text(config.table_name),
+            },
         )
 
     except Exception as e:
@@ -698,76 +980,92 @@ def load_to_database(
 File: src/assets/s2_structured_info.py
 ================================================================================
 
-from dagster import (
-    asset,
-    Config,
-    AssetExecutionContext,
-    AssetIn,
-    get_dagster_logger,
-    Output,
-    MetadataValue,
-)
+# src/assets/s2_structured_info.py
+import dagster as dg
 from typing import Dict, Any
+from datetime import datetime
+import json
+from pathlib import Path
+
+from services.structured_output_processor import process_content
 
 from src.resources.storage import StorageResource
-from src.resources.openai import OpenAIResource
-from src.types.documents import ExtractedDocument, StructuredDocument
+from src.utils.config_loader import load_prompt_config
 
-logger = get_dagster_logger()
-
-
-class StructuredExtractionConfig(Config):
-    input_folder: str = "extracted"
-    output_folder: str = "structured"
-    batch_size: int = 10
+logger = dg.get_dagster_logger()
 
 
-@asset(
-    group_name="documents",
+class ExtractionConfig(dg.Config):
+    input_folder: str = "s1_extract_pdf_text"
+    output_folder: str = "s2_structured_info"
+
+
+@dg.asset(
+    group_name="reports",
     compute_kind="openai",
     deps=["extract_pdf_text"],
     code_version="v1",
 )
-def extract_structured_data(
-    context: AssetExecutionContext,
-    config: StructuredExtractionConfig,
+async def extract_structured_info(
+    context: dg.AssetExecutionContext,
+    config: ExtractionConfig,
     storage: StorageResource,
-    openai: OpenAIResource,
     extract_pdf_text: Dict[str, Dict[str, str]],
-) -> Output[Dict[str, Dict]]:
-    """Extract structured data using OpenAI."""
-    context.log.info("Starting structured data extraction")
+) -> dg.Output[Dict[str, Dict]]:
+    """Extract structured data from reports using Azure OpenAI."""
+    context.log.info("Starting data extraction")
+
+    output_path = storage.get_full_path(config.output_folder)
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+
+    config = load_prompt_config("s2_structured_info")
+    llm_config = config.get("job_detail_extraction")
+    context.log.info(f"LLM config: {llm_config}")
 
     structured_documents = {}
 
     for doc_id, doc_data in extract_pdf_text.items():
         try:
-            context.log.info(f"Processing document {doc_data['filename']}")
 
-            structured_data = openai.extract_structured_data(
-                text=doc_data["content"],
-                output_schema={
-                    "title": "string",
-                    "author": "string",
-                    "content_summary": "string",
-                },
-            )
+            doc_id = doc_data["filename"]
 
+            content_text = doc_data["content"]
+            context.log.info(f"Processing report: {doc_id}")
+            context.log.info(content_text)
+            json_data = await process_content(doc_id, content_text, llm_config)
+
+            context.log.info(f"JSON data: {json_data}")
+
+            # Save to JSON file
+            json_path = Path(output_path) / f"{Path(doc_id).stem}_structured.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(json_data, f, ensure_ascii=False, indent=2)
+
+            # Store in output dictionary
             structured_documents[doc_id] = {
-                "filename": doc_data["filename"],
+                "filename": doc_id,
                 "extraction_date": doc_data["extraction_date"],
-                **structured_data,
+                "json_data": json_data,
             }
 
+            context.log.info(f"Successfully extracted data from {doc_id}")
+
         except Exception as e:
-            context.log.error(f"Error processing {doc_data['filename']}: {str(e)}")
+            context.log.error(
+                f"Error processing report {doc_data['filename']}: {str(e)}"
+            )
             continue
 
-    return Output(
+    return dg.Output(
         value=structured_documents,
         metadata={
             "documents_processed": len(structured_documents),
-            "success_rate": f"{(len(structured_documents)/len(extract_pdf_text))*100:.2f}%",
+            "success_rate": (
+                f"{(len(structured_documents)/len(extract_pdf_text))*100:.2f}%"
+                if extract_pdf_text
+                else "0%"
+            ),
+            "output_path": output_path,
         },
     )
 
@@ -799,8 +1097,8 @@ logger = get_dagster_logger()
 
 
 class PDFExtractionConfig(Config):
-    input_folder: str = "pdfs"
-    output_folder: str = "extracted"
+    input_folder: str = "raw"
+    output_folder: str = "s1_extract_pdf_text"
     batch_size: int = 10
 
 

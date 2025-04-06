@@ -1,0 +1,29 @@
+[32m2025-04-05 18:01:24 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 35458829-5e83-4b32-982a-7b951fd9f575 - 1480522 - LOGS_CAPTURED - Started capturing logs in process (pid: 1480522).
+[32m2025-04-05 18:01:24 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 35458829-5e83-4b32-982a-7b951fd9f575 - 1480522 - load_to_database - STEP_START - Started execution of step "load_to_database".
+[32m2025-04-05 18:01:24 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 35458829-5e83-4b32-982a-7b951fd9f575 - load_to_database - Loading file from: /home/sav/projects/dagster-uv-docker-aws/.tmp_dagster_home_j341qvjm/storage/extract_structured_info using PickledObjectFilesystemIOManager...
+[32m2025-04-05 18:01:24 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 35458829-5e83-4b32-982a-7b951fd9f575 - 1480522 - load_to_database - LOADED_INPUT - Loaded input "extract_structured_info" using input manager "io_manager", from output "result" of step "extract_structured_info"
+[32m2025-04-05 18:01:24 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 35458829-5e83-4b32-982a-7b951fd9f575 - 1480522 - load_to_database - STEP_INPUT - Got input "extract_structured_info" of type "Dict[String,dict]". (Type check passed).
+[32m2025-04-05 18:01:24 +0200[0m - dagster - [34mINFO[0m - __ASSET_JOB - 35458829-5e83-4b32-982a-7b951fd9f575 - load_to_database - Starting database load
+[32m2025-04-05 18:01:24 +0200[0m - dagster - [34mERROR[0m - [31m__ASSET_JOB - 35458829-5e83-4b32-982a-7b951fd9f575 - load_to_database - Database error: module 'resources.duckdb' has no attribute 'create_table'[0m
+[32m2025-04-05 18:01:24 +0200[0m - dagster - [34mERROR[0m - [31m__ASSET_JOB - 35458829-5e83-4b32-982a-7b951fd9f575 - 1480522 - load_to_database - STEP_FAILURE - Execution of step "load_to_database" failed.
+
+dagster._core.errors.DagsterExecutionStepExecutionError: Error occurred while executing op "load_to_database"::
+
+AttributeError: module 'resources.duckdb' has no attribute 'create_table'
+
+Stack Trace:
+  File "/home/sav/projects/dagster-uv-docker-aws/.venv/lib/python3.12/site-packages/dagster/_core/execution/plan/utils.py", line 56, in op_execution_error_boundary
+    yield
+  File "/home/sav/projects/dagster-uv-docker-aws/.venv/lib/python3.12/site-packages/dagster/_utils/__init__.py", line 401, in iterate_with_context
+    next_output = next(iterator)
+                  ^^^^^^^^^^^^^^
+  File "/home/sav/projects/dagster-uv-docker-aws/.venv/lib/python3.12/site-packages/dagster/_core/execution/plan/compute_generator.py", line 127, in _coerce_op_compute_fn_to_iterator
+    result = invoke_compute_fn(
+             ^^^^^^^^^^^^^^^^^^
+  File "/home/sav/projects/dagster-uv-docker-aws/.venv/lib/python3.12/site-packages/dagster/_core/execution/plan/compute_generator.py", line 115, in invoke_compute_fn
+    return fn(context, **args_to_pass) if context_arg_provided else fn(**args_to_pass)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sav/projects/dagster-uv-docker-aws/src/assets/s3_db_load.py", line 47, in load_to_database
+    duckdb.create_table(config.table_name, config.schema_mapping)
+    ^^^^^^^^^^^^^^^^^^^
+[0m

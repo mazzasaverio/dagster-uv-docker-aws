@@ -43,3 +43,17 @@ The pipeline consists of three sequential steps:
 1. Python 3.12+ installed.
 3. AWS CLI configured (if using S3 or RDS).
 4. Docker installed (optional for containerized deployments).
+
+
+
+dagster dev -m src.definitions
+
+
+
+Per visualizzare la ui con duckdb 
+
+Prima installiamo 
+
+curl https://install.duckdb.org | sh
+
+duckdb data/documents.duckdb -ui   

@@ -13,7 +13,10 @@ dist/
 .env
 data/database/*.db
 data/database/*.db.wal
+save_repo_content.py
+repository_content.txt
 # Add any other sensitive files or large data directories
 # data/input_pdfs/ # Optional: if your input data is large/private
 # data/raw_text/
 # data/structured_data/
+data/raw/hon-esg-report.pdf

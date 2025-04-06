@@ -1,0 +1,28 @@
+[32m2025-04-05 18:27:23 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - 1550812 - LOGS_CAPTURED - Started capturing logs in process (pid: 1550812).
+[32m2025-04-05 18:27:23 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - 1550812 - extract_pdf_text - STEP_START - Started execution of step "extract_pdf_text".
+[32m2025-04-05 18:27:23 +0200[0m - dagster - [34mINFO[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - extract_pdf_text - Starting PDF text extraction
+[32m2025-04-05 18:27:23 +0200[0m - dagster - [34mINFO[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - extract_pdf_text - Looking for PDFs in: /home/sav/projects/dagster-uv-docker-aws/data/raw
+[32m2025-04-05 18:27:23 +0200[0m - dagster - [34mINFO[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - extract_pdf_text - Will save JSONs in: /home/sav/projects/dagster-uv-docker-aws/data/s1_extract_pdf_text
+[32m2025-04-05 18:27:23 +0200[0m - dagster - [34mINFO[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - extract_pdf_text - Found 1 PDF files: ['1706.03762v7.pdf']
+[32m2025-04-05 18:27:23 +0200[0m - dagster - [34mINFO[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - extract_pdf_text - Processing 1706.03762v7.pdf
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+CropBox missing from /Page, defaulting to MediaBox
+[32m2025-04-05 18:27:24 +0200[0m - dagster - [34mINFO[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - extract_pdf_text - Successfully processed 1706.03762v7.pdf and saved to /home/sav/projects/dagster-uv-docker-aws/data/s1_extract_pdf_text/1706.03762v7.json
+[32m2025-04-05 18:27:24 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - 1550812 - extract_pdf_text - STEP_OUTPUT - Yielded output "result" of type "Dict[String,Dict[String,String]]". (Type check passed).
+[32m2025-04-05 18:27:24 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - extract_pdf_text - Writing file at: /home/sav/projects/dagster-uv-docker-aws/.tmp_dagster_home_7wj35tht/storage/extract_pdf_text using PickledObjectFilesystemIOManager...
+[32m2025-04-05 18:27:25 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - 1550812 - extract_pdf_text - ASSET_MATERIALIZATION - Materialized value extract_pdf_text.
+[32m2025-04-05 18:27:25 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - 1550812 - extract_pdf_text - HANDLED_OUTPUT - Handled output "result" using IO manager "io_manager"
+[32m2025-04-05 18:27:25 +0200[0m - dagster - [34mDEBUG[0m - __ASSET_JOB - 5915680c-61cd-4064-9522-6786f12f5148 - 1550812 - extract_pdf_text - STEP_SUCCESS - Finished execution of step "extract_pdf_text" in 1.74s.

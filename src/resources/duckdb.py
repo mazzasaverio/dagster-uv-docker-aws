@@ -1,12 +1,15 @@
-from dagster import ConfigurableResource, get_dagster_logger
-import duckdb
 import os
 from typing import Any, Dict, List, Optional, Union
 
-logger = get_dagster_logger()
+import duckdb
+from dagster_duckdb import DuckDBResource
+import dagster as dg
 
 
-class DuckDBResource(ConfigurableResource):
+logger = dg.get_dagster_logger()
+
+
+class DuckDBResource(dg.ConfigurableResource):
     """Resource for DuckDB database operations using a file-based database."""
 
     path: Optional[str] = None
@@ -31,13 +34,19 @@ class DuckDBResource(ConfigurableResource):
 
     def create_table(self, table_name: str, schema: Dict[str, str]) -> None:
         """Create a table if it doesn't exist."""
+        # First, drop the table if it exists
+        drop_stmt = f"DROP TABLE IF EXISTS {table_name};"
+        self._conn.execute(drop_stmt)
+        logger.info(f"Dropped table {table_name} if it existed")
+
+        # Then create the table with the current schema
         create_stmt = f"""
-            CREATE TABLE IF NOT EXISTS {table_name} (
+            CREATE TABLE {table_name} (
                 {', '.join(f'{k} {v}' for k, v in schema.items())}
             );
         """
         self._conn.execute(create_stmt)
-        logger.info(f"Created table {table_name} (if not exists)")
+        logger.info(f"Created table {table_name}")
 
     def execute_query(self, query: str, params: Union[tuple, list, dict] = None) -> Any:
         """Execute a SQL query with optional parameters."""
@@ -56,11 +65,10 @@ class DuckDBResource(ConfigurableResource):
 
     def execute_batch(self, query: str, data: List[tuple]) -> int:
         """Execute a batch operation with multiple parameter sets."""
-        affected_rows = 0
         for params in data:
-            result = self._conn.execute(query, params)
-            affected_rows += result.execute_n_rows()
-        return affected_rows
+            self._conn.execute(query, params)
+        # Just return the count of records we processed
+        return len(data)
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists in the database."""
